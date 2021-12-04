@@ -76,6 +76,9 @@ class Server {
             file = File(request.second[0])
             fileBytes = Files.readAllBytes(file.toPath()) //кучи говн
         } catch (e: Exception) {
+            val z = Utils.packError()
+            dataOutputStream.writeInt(z.size)
+            dataOutputStream.write(z)
             println("no such file")
         }
         println(request)

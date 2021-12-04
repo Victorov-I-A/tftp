@@ -43,6 +43,11 @@ object Utils {
         .putShort(num)
         .array()
 
+    fun packError() = ByteBuffer.allocate(4)
+        .putShort(Opcode.Error.code)
+        .putShort(ErrorCode.AccessViolation.code)
+        .array()
+
     //вот тут либо то, либо сё, вообще на третье должна быт ьпроверка, но это ладно
     //возвращает пару, где первое понятно что, а второе это список из названия файла и мода
     fun unpackRequest(bytes: ByteArray): Pair<Opcode, List<String>> =

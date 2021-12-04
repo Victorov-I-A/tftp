@@ -1,4 +1,5 @@
 import java.io.*
+import java.lang.Exception
 import java.net.Socket
 import java.nio.file.Files
 import java.util.*
@@ -75,6 +76,9 @@ class Client {
             val inputOnlyData = ByteArray(arraySize - 4)
             System.arraycopy(input, 4, inputOnlyData, 0, arraySize - 4);
             byteStream.write(inputOnlyData)
+            if (input[1].toShort()==Utils.Opcode.Error.code) {
+                println("No Such file")
+            }
 
             print(input[2])
             print(" ")
@@ -110,8 +114,17 @@ class Client {
         dataOutputStream.write(request)
         println(request.toString(Charsets.UTF_8))
 
-        val file = File(filePath)
-        val fileBytes = Files.readAllBytes(file.toPath()) //кучи говн
+        val file: File
+        val fileBytes: ByteArray
+        try {
+            file = File(filePath)
+            fileBytes = Files.readAllBytes(file.toPath())
+        } catch (e: Exception) {
+            println("no such file")
+            return
+        }
+
+
         println(request)
         var remainingBytes = fileBytes.size//оставшиеся байты
         var currentBlock: Short = 1//текущий блок
