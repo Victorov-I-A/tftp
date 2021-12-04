@@ -1,5 +1,6 @@
 import java.io.*
 import java.net.Socket
+import java.nio.file.Files
 import java.util.*
 
 fun main(args: Array<String>) {
@@ -7,8 +8,8 @@ fun main(args: Array<String>) {
     c.start()
 }
 
+//C:/Users/Ilia/k.png
 class Client {
-    // тут всё по рофлу, и единственное что пока +- работает - при вводе r PATHNAME - вызывается readFile
     fun start() {
         println("format: [r | w] pathname")
         while (true) {
@@ -19,14 +20,10 @@ class Client {
                 continue
             }
 
-
             if (splittedInput?.size == 1) {
                 when ((splittedInput[0])) {
-                    "close" -> {
-                        closeClient()
-                    }
-                    "closeServer" -> {
-                        closeServer()
+                    "exit" -> {
+                        return
                     }
                     else -> {
                         println("format: [r | w] pathname")
@@ -51,50 +48,103 @@ class Client {
                 }
 
             }
+            if (splittedInput?.size!! > 2) {
+                println("format: [r | w] pathname")
+                continue
+            }
 
         }
     }
 
     private fun readFile(filePath: String) {
-        //подключились, отправили поток байтов в котором содержится
-        // сообщение "RRQ C://l1/c.jpg modeName" и ждем ответа от сервера
         val client = Socket("127.0.0.1", 9999)
-        val charset = Charsets.UTF_8
-        val dOut = DataOutputStream(client.getOutputStream())
-        val msg = "RRQ $filePath modeName"
-        val message = msg.toByteArray(charset)
-        dOut.writeInt(message.size)
-        dOut.write(message);
+        val dataOutputStream = DataOutputStream(client.getOutputStream())
+        val dataInputStream = DataInputStream(client.getInputStream())
 
-        //получаем поток байтов, и превращаем в файл
-        // а надо сделать чтобы мы поулчили кусочек байтов, и отправили запрос на некст кусочек,
-        // пока не получим все кусочки и тогда собрать их и получить файл
-        val dIn = DataInputStream(client.getInputStream())
-        val length: Int = dIn.readInt()
-        val messageInBytes = ByteArray(length)
-        dIn.read(messageInBytes)
-        try {
-            FileOutputStream(
-                "fff" +
-                        Random().nextInt(1000000)
-            ).use { fos -> fos.write(messageInBytes) }
-        } catch (e: IOException) {
-            e.printStackTrace()
+        val request = Utils.packRequest(Utils.Opcode.RRQ, filePath)
+        dataOutputStream.writeInt(request.size)
+        dataOutputStream.write(request)
+
+        val byteStream = ByteArrayOutputStream()
+        var currentBlock: Short = 1
+        while (true) {
+            val arraySize = dataInputStream.readInt();
+            val input = ByteArray(arraySize)
+            dataInputStream.read(input)
+
+            val inputOnlyData = ByteArray(arraySize - 4)
+            System.arraycopy(input, 4, inputOnlyData, 0, arraySize - 4);
+            byteStream.write(inputOnlyData)
+
+            print(input[2])
+            print(" ")
+            print(input[3])
+            println()
+
+            if (input[1].toShort() == Utils.Opcode.Data.code) {
+                val packData = Utils.unpackData(input)
+                if (currentBlock == packData.first) {             //всегда же тру?
+                    currentBlock++
+                    if (packData.second.size < 512)
+                        break
+                }
+                println("pacack")
+                val toWrite = Utils.packACK(currentBlock)
+                dataOutputStream.writeInt(toWrite.size)
+                dataOutputStream.write(toWrite)
+            }
         }
+        client.close()
+        val fileName = filePath.split('/').last()
+        File(fileName).writeBytes(byteStream.toByteArray())
+        println("File $fileName downloaded successfully.")
     }
 
     private fun writeFile(filePath: String) {
         val client = Socket("127.0.0.1", 9999)
-        val charset = Charsets.UTF_8
-        val dOut = DataOutputStream(client.getOutputStream())
+        val dataOutputStream = DataOutputStream(client.getOutputStream())
+        val dataInputStream = DataInputStream(client.getInputStream())
 
-        val msg = "WRQ $filePath modeName"
-        val message = msg.toByteArray(charset)
-        dOut.writeInt(message.size); // write length of the message
-        dOut.write(message);           // write the message
+        val request = Utils.packRequest(Utils.Opcode.WRQ, filePath)
+        dataOutputStream.writeInt(request.size)
+        dataOutputStream.write(request)
+        println(request.toString(Charsets.UTF_8))
 
+        val file = File(filePath)
+        val fileBytes = Files.readAllBytes(file.toPath()) //кучи говн
+        println(request)
+        var remainingBytes = fileBytes.size//оставшиеся байты
+        var currentBlock: Short = 1//текущий блок
+
+        while (true) {
+            val arraySize = dataInputStream.readInt();
+            val readValue = ByteArray(arraySize)
+            dataInputStream.read(readValue)
+
+            println(currentBlock)
+            println(remainingBytes)
+
+            var minn = 512 * currentBlock
+            if (remainingBytes < 512) minn = remainingBytes + 512 * (currentBlock - 1)
+            println(minn)
+            println("_____")
+            val blockData = Arrays.copyOfRange(
+                fileBytes,
+                512 * (currentBlock - 1), minn
+            )
+
+            val z = Utils.packDataBlock(currentBlock, blockData)
+            dataOutputStream.writeInt(z.size)
+            dataOutputStream.write(z)
+
+
+            remainingBytes -= 512
+            currentBlock++
+            if (remainingBytes <= 0) break
+        }
     }
 
+    //ыаы ты думал тут что-то будет?)))000))да.
     private fun closeClient() {
         println(123)
         TODO("Not yet implemented")
