@@ -1,8 +1,8 @@
 import java.io.*
 import java.lang.Exception
 import java.net.Socket
+import java.net.SocketException
 import java.nio.file.Files
-import java.util.*
 
 fun main(args: Array<String>) {
     val c = Client();
@@ -59,48 +59,47 @@ class Client {
 
     private fun readFile(filePath: String) {
         val client = Socket("127.0.0.1", 9999)
-        val dataOutputStream = DataOutputStream(client.getOutputStream())
-        val dataInputStream = DataInputStream(client.getInputStream())
+        client.soTimeout = Utils.SOCKET_TIMEOUT
+
+        val dataOutputStream = client.getOutputStream()
+        val dataInputStream = client.getInputStream()
 
         val request = Utils.packRequest(Utils.Opcode.RRQ, filePath)
-        dataOutputStream.writeInt(request.size)
         dataOutputStream.write(request)
 
-        val byteStream = ByteArrayOutputStream()
+        val fileContent = ByteArrayOutputStream()
         var currentBlock: Short = 1
+        var readBytes: Int
         while (true) {
-            val arraySize = dataInputStream.readInt();
-            val input = ByteArray(arraySize)
-            dataInputStream.read(input)
-
-            val inputOnlyData = ByteArray(arraySize - 4)
-            System.arraycopy(input, 4, inputOnlyData, 0, arraySize - 4);
-            byteStream.write(inputOnlyData)
-            if (input[1].toShort()==Utils.Opcode.Error.code) {
-                println("No Such file")
+            val input = ByteArray(Utils.PACKET_SIZE)
+            try {
+                readBytes = dataInputStream.read(input)
+            } catch (e: SocketException) {
+                TODO("Not yet implemented")
             }
-
-            print(input[2])
-            print(" ")
-            print(input[3])
-            println()
-
-            if (input[1].toShort() == Utils.Opcode.Data.code) {
-                val packData = Utils.unpackData(input)
-                if (currentBlock == packData.first) {             //всегда же тру?
-                    currentBlock++
-                    if (packData.second.size < 512)
-                        break
+            when (input[1].toShort()) {
+                Utils.Opcode.Error.code -> {
+                    TODO("Not yet implemented")
                 }
-                println("pacack")
-                val toWrite = Utils.packACK(currentBlock)
-                dataOutputStream.writeInt(toWrite.size)
-                dataOutputStream.write(toWrite)
+                Utils.Opcode.Data.code -> {
+                    val packData = Utils.unpackData(input)
+                    if (currentBlock == packData.first) {
+                        fileContent.write(input.copyOfRange(4, readBytes))
+                        if (readBytes != Utils.PACKET_SIZE) {
+                            break
+                        }
+                        currentBlock++
+                    }
+                    dataOutputStream.write(Utils.packACK(currentBlock))
+                }
+                else -> {
+                    TODO("Not yet implemented")
+                }
             }
         }
         client.close()
         val fileName = filePath.split('/').last()
-        File(fileName).writeBytes(byteStream.toByteArray())
+        File(fileName).writeBytes(fileContent.toByteArray())
         println("File $fileName downloaded successfully.")
     }
 
@@ -112,7 +111,6 @@ class Client {
         val request = Utils.packRequest(Utils.Opcode.WRQ, filePath)
         dataOutputStream.writeInt(request.size)
         dataOutputStream.write(request)
-        println(request.toString(Charsets.UTF_8))
 
         val file: File
         val fileBytes: ByteArray
@@ -123,9 +121,6 @@ class Client {
             println("no such file")
             return
         }
-
-
-        println(request)
         var remainingBytes = fileBytes.size//оставшиеся байты
         var currentBlock: Short = 1//текущий блок
 
@@ -134,17 +129,11 @@ class Client {
             val readValue = ByteArray(arraySize)
             dataInputStream.read(readValue)
 
-            println(currentBlock)
-            println(remainingBytes)
-
             var minn = 512 * currentBlock
             if (remainingBytes < 512) minn = remainingBytes + 512 * (currentBlock - 1)
             println(minn)
             println("_____")
-            val blockData = Arrays.copyOfRange(
-                fileBytes,
-                512 * (currentBlock - 1), minn
-            )
+            val blockData = fileBytes.copyOfRange(512 * (currentBlock - 1), minn)
 
             val z = Utils.packDataBlock(currentBlock, blockData)
             dataOutputStream.writeInt(z.size)
@@ -157,7 +146,7 @@ class Client {
         }
     }
 
-    //ыаы ты думал тут что-то будет?)))000))да.
+    //ыаы ты думал тут что-то будет?)))000))да. Чел ты смишной. Аруу:))))
     private fun closeClient() {
         println(123)
         TODO("Not yet implemented")

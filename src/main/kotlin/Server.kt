@@ -1,9 +1,8 @@
+import jdk.jshell.execution.Util
 import java.io.*
 import java.lang.Exception
-import java.net.ServerSocket
-import java.net.Socket
+import java.net.*
 import java.nio.file.Files
-import java.util.*
 
 
 fun main(args: Array<String>) {
@@ -13,16 +12,12 @@ fun main(args: Array<String>) {
 
 class Server {
     fun start() {
-        //включились, ждем от клиента
         val server = ServerSocket(9999)
         val client = server.accept()
-        val dataInputStream = DataInputStream(client.getInputStream())
 
-        val length: Int = dataInputStream.readInt() // read length of incoming message
-        val input = ByteArray(length)
+        val input = ByteArray(Utils.PACKET_SIZE)
         client.getInputStream().read(input)
-        val request = Utils.unpackRequest(input) //в утиле всё написал мб
-
+        val request = Utils.unpackRequest(input)
         if (request.first == Utils.Opcode.RRQ) readMode(request, client)
         if (request.first == Utils.Opcode.WRQ) writeMode(request, client)
 
@@ -57,8 +52,6 @@ class Server {
                 println("File $fileName downloaded successfully.")
                 return
             }
-
-            println("pacack")
             val toWrite = Utils.packACK(currentBlock)
             dataOutputStream.writeInt(toWrite.size)
             dataOutputStream.write(toWrite)
@@ -67,6 +60,7 @@ class Server {
     }
 
     private fun readMode(request: Pair<Utils.Opcode, List<String>>, client: Socket) {
+        client.soTimeout = Utils.SOCKET_TIMEOUT
         val dataInputStream = DataInputStream(client.getInputStream())
         val dataOutputStream = DataOutputStream(client.getOutputStream())
 
@@ -74,34 +68,43 @@ class Server {
         var fileBytes = ByteArray(0)
         try {
             file = File(request.second[0])
-            fileBytes = Files.readAllBytes(file.toPath()) //кучи говн
+            fileBytes = Files.readAllBytes(file.toPath())
         } catch (e: Exception) {
-            val z = Utils.packError()
-            dataOutputStream.writeInt(z.size)
-            dataOutputStream.write(z)
-            println("no such file")
+            //dataOutputStream.write(Utils.packError())
+            println("RRQ from ${client.localAddress}: File not found.") //ну так себе выводит
         }
-        println(request)
-        var remainingBytes = fileBytes.size//оставшиеся байты
-        var currentBlock: Short = 1//текущий блок
+        var currentBlock: Short = 1
         while (true) {
-            var minn = 512 * currentBlock
-            if (remainingBytes < 512) minn = remainingBytes + 512 * (currentBlock - 1)
-            val blockData = Arrays.copyOfRange(
-                fileBytes,
-                512 * (currentBlock - 1), minn
-            )
-
-            val z = Utils.packDataBlock(currentBlock, blockData)
-            dataOutputStream.writeInt(z.size)
-            dataOutputStream.write(z)
-
-            val arraySize = dataInputStream.readInt();
-            val readValue = ByteArray(arraySize)
-            dataInputStream.read(readValue)
-
-            remainingBytes -= 512
-            currentBlock++
+            if (Utils.DATA_SIZE > fileBytes.size - Utils.DATA_SIZE * (currentBlock - 1)) {
+                dataOutputStream.write(
+                    Utils.packDataBlock(
+                        currentBlock, fileBytes.copyOfRange(Utils.DATA_SIZE * (currentBlock - 1), fileBytes.size)
+                    )
+                )
+                break
+            } else {
+                dataOutputStream.write(
+                    Utils.packDataBlock(
+                        currentBlock, fileBytes.copyOfRange(
+                            Utils.DATA_SIZE * (currentBlock - 1), Utils.DATA_SIZE * currentBlock
+                        )
+                    )
+                )
+            }
+            val input = ByteArray(Utils.PACKET_SIZE)
+            try {
+                dataInputStream.read(input)
+            } catch (e: SocketException) {
+                TODO("Not yet implemented")
+            }
+            when (input[1].toShort()) {
+                Utils.Opcode.ACK.code -> {
+                    currentBlock = Utils.unpackACK(input)
+                }
+                else -> {
+                    TODO("Not yet implemented")
+                }
+            }
         }
     }
 }
