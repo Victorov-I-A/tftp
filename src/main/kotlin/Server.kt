@@ -1,4 +1,3 @@
-import jdk.jshell.execution.Util
 import java.io.*
 import java.lang.Exception
 import java.net.*
@@ -24,39 +23,46 @@ class Server {
     }
 
     private fun writeMode(request: Pair<Utils.Opcode, List<String>>, client: Socket) {
-        val dataInputStream = DataInputStream(client.getInputStream())
-        val dataOutputStream = DataOutputStream(client.getOutputStream())
+        client.soTimeout = Utils.SOCKET_TIMEOUT
 
-        val byteStream = ByteArrayOutputStream()
+        val dataOutputStream = client.getOutputStream()
+        val dataInputStream = client.getInputStream()
+
+        val fileContent = ByteArrayOutputStream()
         var currentBlock: Short = 0
+        var readBytes: Int
 
-        val toWrite = Utils.packACK(currentBlock)
-        dataOutputStream.writeInt(toWrite.size)
-        dataOutputStream.write(toWrite)
-
+        dataOutputStream.write(Utils.packACK(currentBlock))
         while (true) {
-            val arraySize = dataInputStream.readInt();
-            val input = ByteArray(arraySize)
-            dataInputStream.read(input)
-
-            val inputOnlyData = ByteArray(arraySize - 4)
-            System.arraycopy(input, 4, inputOnlyData, 0, arraySize - 4);
-            byteStream.write(inputOnlyData)
-
-            val packData = Utils.unpackData(input)
-            currentBlock++
-            if (packData.second.size < 512) {
-
-                val fileName = request.second[0].split('/').last()
-                File(fileName).writeBytes(byteStream.toByteArray())
-                println("File $fileName downloaded successfully.")
-                return
+            val input = ByteArray(Utils.PACKET_SIZE)
+            try {
+                readBytes = dataInputStream.read(input)
+            } catch (e: SocketException) {
+                TODO("Not yet implemented")
             }
-            val toWrite = Utils.packACK(currentBlock)
-            dataOutputStream.writeInt(toWrite.size)
-            dataOutputStream.write(toWrite)
-
+            when (input[1].toShort()) {
+                Utils.Opcode.Error.code -> {
+                    TODO("Not yet implemented")
+                }
+                Utils.Opcode.Data.code -> {
+                    val packData = Utils.unpackData(input)
+                    if (currentBlock == packData.first) {
+                        fileContent.write(input.copyOfRange(4, readBytes))
+                        if (readBytes != Utils.PACKET_SIZE) {
+                            break
+                        }
+                        currentBlock++
+                    }
+                    dataOutputStream.write(Utils.packACK(currentBlock))
+                }
+                else -> {
+                    TODO("Not yet implemented")
+                }
+            }
         }
+        val fileName = request.second[0].split('/').last()
+        File(fileName).writeBytes(fileContent.toByteArray())
+        println("File $fileName downloaded successfully.")
     }
 
     private fun readMode(request: Pair<Utils.Opcode, List<String>>, client: Socket) {
@@ -75,10 +81,11 @@ class Server {
         }
         var currentBlock: Short = 1
         while (true) {
-            if (Utils.DATA_SIZE > fileBytes.size - Utils.DATA_SIZE * (currentBlock - 1)) {
+            if (Utils.DATA_SIZE * currentBlock > fileBytes.size) {
                 dataOutputStream.write(
                     Utils.packDataBlock(
-                        currentBlock, fileBytes.copyOfRange(Utils.DATA_SIZE * (currentBlock - 1), fileBytes.size)
+                        currentBlock, fileBytes.copyOfRange(
+                            Utils.DATA_SIZE * (currentBlock - 1), fileBytes.size)
                     )
                 )
                 break
